@@ -1,6 +1,10 @@
 import mtgjson
 import networkx as nx
+import os
 from collections import defaultdict
+
+__location__ = os.path.realpath(
+    os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 __types = set(['artifact', 'conspiracy', 'creature', 'enchantment', 'instant', 'land', 'phenomenon', 'plane', 'planeswalker',
     'scheme', 'sorcery', 'tribal', 'vanguard'])
@@ -28,9 +32,9 @@ __subtypes = set(['Arcane', 'Trap', 'Advisor', 'Ally', 'Angel', 'Antelope', 'Ape
     'Wall', 'Warrior', 'Weird', 'Werewolf', 'Whale', 'Wizard', 'Wolf', 'Wolverine', 'Wombat', 'Worm', 'Wraith', 'Wurm',
     'Yeti', 'Zombie', 'Zubera', 'Desert', 'Forest', 'Gate', 'Island', 'Lair', 'Locus', 'Mine', 'Mountain', 'Plains',
     'Power-Plant', 'Swamp', 'Tower', 'Urza’s', 'Aura', 'Curse', 'Shrine', 'Contraption', 'Equipment', 'Fortification'])
-__keywords = __types | __subtypes | __supertypes
-__keyword_types = ['types', 'supertypes', 'subtypes']
-__db = mtgjson.CardDb.from_file('AllSets.json')
+_keywords = __types | __subtypes | __supertypes
+_keyword_types = ['types', 'supertypes', 'subtypes']
+_db = mtgjson.CardDb.from_file(os.path.join(__location__, 'AllSets.json'))
 
 
 class MtgAnalysis:
@@ -41,7 +45,8 @@ class MtgAnalysis:
 
         :param setnames: A list of MtG three-letter set codes
         """
-        sets = [__db.sets[name] for name in setnames]
+        global _db
+        sets = [_db.sets[name] for name in setnames]
         cards = [set.cards for set in sets]
         flattened = [card for sublist in cards for card in sublist]
         return cls(flattened)
@@ -59,15 +64,17 @@ class MtgAnalysis:
         self.synergies = defaultdict(list)
         self.graph = nx.MultiDiGraph()
 
-    def analyse(self, cards):
+    def analyse(self):
+        global _keywords, _keyword_types
+
         g = self.graph
 
         # Create nodes
-        for i, card in enumerate(cards):
+        for i, card in enumerate(self.cards):
             g.add_node(i, {"card": card})
 
         # Create edges
-        for i, card in enumerate(cards):
+        for i, card in enumerate(self.cards):
 
             # If the card has no text it can't synergise with anything
             if not 'text' in card:
@@ -75,14 +82,14 @@ class MtgAnalysis:
 
             # Work out what cards this card affects
             words = set(card.text.split())
-            card_keywords = __keywords & words
+            card_keywords = _keywords & words
 
             # Join it to any card that it targets
-            for j, target_card in enumerate(cards):
+            for j, target_card in enumerate(self.cards):
 
                 # Make a set of all the types, subtypes and supertypes the target has
                 target_keywords = set()
-                for keyword_type in __keyword_types:
+                for keyword_type in _keyword_types:
                     if keyword_type in target_card:
                         target_keywords |= set(target_card[keyword_type])
 
@@ -92,6 +99,16 @@ class MtgAnalysis:
                     g.add_edge(i, j, attr_dict={'link': edge})
 
     def to_arrays(self):
-        return (self.graph.edges(data=True), self.graph.nodes(data=True))
+        def get_color(node):
+            if 'colors' in node:
+                color = node.colors[0]
+                if color == 'White':
+                    return 'Yellow'
+                else:
+                    return color
+            else:
+                return 'gray'
 
-    analyse_sets(('ZEN', 'PLC', 'EVE'))
+        edges = [{'name': card[1]['card'].name, 'color': get_color(card[1]['card'])} for card in self.graph.nodes(data=True)]
+        nodes = [{'name': edge[2]['link'], 'target': edge[1], 'source': edge[0]} for edge in self.graph.edges(data=True)]
+        return edges, nodes
